@@ -13,6 +13,24 @@ use crate::Resource;
 use crate::ResourceTemplate;
 use crate::v8;
 
+/// Trait for type-erased resource cleanup during Realm shutdown.
+///
+/// This follows the C++ pattern where `HeapTracer::clearWrappers()` iterates all tracked
+/// wrappers at shutdown and cleans them up. Without this, instances that have JavaScript
+/// wrappers but are waiting for V8 GC would leak when the Realm is dropped.
+pub(crate) trait ResourceCleanup: Any {
+    /// Cleans up all tracked instances by dropping them directly.
+    /// Called during Realm shutdown before V8 GC has a chance to run.
+    fn cleanup(&mut self);
+
+    /// Removes an instance from tracking. Called from the weak callback when V8 GC
+    /// collects a wrapped resource. This prevents double-free when Realm later drops.
+    fn remove_instance(&mut self, ptr: NonNull<c_void>);
+
+    /// Returns self as `&mut dyn Any` for downcasting.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
 pub(crate) struct Instance<R: Resource> {
     resource: R,
     pub(crate) state: State,
@@ -92,6 +110,9 @@ pub struct State {
     /// Function pointer to drop the Instance<R>. Called from the weak callback
     /// triggered by the v8 garbage collector.
     drop_fn: Option<unsafe fn(*mut c_void)>,
+    /// `TypeId` of the resource type R. Used to find the `ResourceImpl<R>` in Resources
+    /// when the weak callback fires and we need to remove from instance tracking.
+    type_id: Option<TypeId>,
 }
 
 impl Default for State {
@@ -102,6 +123,7 @@ impl Default for State {
             isolate: None,
             strong_ref_count: Cell::new(0),
             drop_fn: None,
+            type_id: None,
         }
     }
 }
@@ -114,7 +136,18 @@ impl State {
             isolate: None,
             strong_ref_count: Cell::new(0),
             drop_fn: Some(drop_fn),
+            type_id: None,
         }
+    }
+
+    /// Returns the isolate pointer if set.
+    pub fn isolate(&self) -> Option<v8::IsolatePtr> {
+        self.isolate
+    }
+
+    /// Returns the `TypeId` of the resource type.
+    pub fn type_id(&self) -> Option<TypeId> {
+        self.type_id
     }
 
     /// Returns the pointer to the owning Instance, or `None` if not yet set.
@@ -184,6 +217,7 @@ impl State {
 
         self.strong_wrapper = Some(object.into());
         self.isolate = Some(realm.isolate());
+        self.type_id = Some(TypeId::of::<R>());
 
         let this_ptr = self.this.expect("this must be set before attach_wrapper");
         realm
@@ -290,8 +324,18 @@ where
         }
     }
 
-    let resources = lock.realm().get_resources::<R>();
-    let constructor = resources.get_constructor(lock);
+    // Get isolate early since it's Copy and we need it multiple times
+    let isolate = lock.isolate();
+
+    // SAFETY: We need to work around the borrow checker here because:
+    // 1. realm().get_resources() requires &mut Lock via realm()
+    // 2. get_constructor() also requires &mut Lock
+    // Both operations are safe because they don't actually overlap in their mutations.
+    let constructor = unsafe {
+        let lock_ptr = lock as *mut Lock;
+        let resources = (*lock_ptr).realm().get_resources::<R>();
+        resources.get_constructor(&mut *lock_ptr).clone()
+    };
 
     state.set_this(instance_ptr.cast());
 
@@ -300,8 +344,12 @@ where
     let this_ptr = state.this_ptr().expect("this_ptr should be set").as_ptr();
     let wrapped_instance: v8::Local<'a, v8::Value> = unsafe {
         v8::Local::from_ffi(
-            lock.isolate(),
-            v8::ffi::wrap_resource(lock.isolate().as_ffi(), this_ptr as usize, constructor.as_ffi_ref()),
+            isolate,
+            v8::ffi::wrap_resource(
+                isolate.as_ffi(),
+                this_ptr as usize,
+                constructor.as_ffi_ref(),
+            ),
         )
     };
     // SAFETY: attach_wrapper requires valid V8 context
@@ -322,7 +370,17 @@ pub fn unwrap<'a, R: Resource>(lock: &'a mut Lock, value: v8::Local<v8::Value>) 
 /// template and all live instances of that type.
 #[derive(Default)]
 pub struct Resources {
-    templates: HashMap<TypeId, Box<dyn Any>>,
+    templates: HashMap<TypeId, Box<dyn ResourceCleanup>>,
+}
+
+impl Drop for Resources {
+    fn drop(&mut self) {
+        // Clean up all tracked instances during Realm shutdown.
+        // This follows the C++ HeapTracer::clearWrappers() pattern.
+        for resource_impl in self.templates.values_mut() {
+            resource_impl.cleanup();
+        }
+    }
 }
 
 impl Resources {
@@ -340,8 +398,17 @@ impl Resources {
         self.templates
             .entry(TypeId::of::<R>())
             .or_insert_with(|| Box::new(ResourceImpl::<R>::default()))
+            .as_any_mut()
             .downcast_mut::<ResourceImpl<R>>()
             .expect("Template type mismatch")
+    }
+
+    /// Removes an instance from tracking by its `TypeId`.
+    /// Called from the weak callback when V8 GC collects a wrapped resource.
+    pub(crate) fn remove_instance_by_type_id(&mut self, type_id: TypeId, ptr: NonNull<c_void>) {
+        if let Some(resource_impl) = self.templates.get_mut(&type_id) {
+            resource_impl.remove_instance(ptr);
+        }
     }
 }
 
@@ -361,6 +428,33 @@ impl<R: Resource> Default for ResourceImpl<R> {
             template: None,
             instances: Vec::new(),
         }
+    }
+}
+
+impl<R: Resource + 'static> ResourceCleanup for ResourceImpl<R>
+where
+    <R as Resource>::Template: 'static,
+{
+    fn cleanup(&mut self) {
+        // Drop all tracked instances directly.
+        // This is called during Realm shutdown, so we don't wait for V8 GC.
+        for instance_ptr in self.instances.drain(..) {
+            // SAFETY: instance_ptr was created via Box::into_raw in Ref::new()
+            // and is still valid since we're in the cleanup path (Realm is being dropped).
+            let _ = unsafe { Box::from_raw(instance_ptr.as_ptr()) };
+        }
+    }
+
+    fn remove_instance(&mut self, ptr: NonNull<c_void>) {
+        // Remove the instance from tracking. Called from weak callback before dropping.
+        let ptr = ptr.as_ptr().cast::<Instance<R>>();
+        if let Some(pos) = self.instances.iter().position(|p| p.as_ptr() == ptr) {
+            self.instances.swap_remove(pos);
+        }
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 
