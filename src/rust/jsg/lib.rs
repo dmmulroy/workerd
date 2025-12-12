@@ -343,7 +343,7 @@ pub trait Resource: Type + Sized {
 
 /// Caches the V8 `FunctionTemplate` for a resource type.
 ///
-/// A `ResourceTemplate` is created per Lock and caches the V8 function template used to
+/// A `ResourceTemplate` is created per Realm and caches the V8 function template used to
 /// instantiate JavaScript wrappers for a resource type. This avoids recreating the template
 /// on every wrap operation.
 pub trait ResourceTemplate {
@@ -412,24 +412,21 @@ unsafe fn realm_create(isolate: *mut v8::ffi::Isolate) -> Box<Realm> {
 /// Called from C++ weak callback to invoke the drop function stored in State.
 ///
 /// # Safety
-/// The `state` must point to a valid `resource::State` struct with `drop_fn` set.
-/// The `State::this` pointer must still be valid.
+/// The `state` must point to a valid `resource::State` struct.
+/// The instance must still be valid (not already dropped).
 unsafe fn invoke_weak_drop(state: usize) {
     let state_ptr = state as *mut resource::State;
     let state = unsafe { &*state_ptr };
 
-    // The drop_fn must be set - it's always initialized in State::new()
-    let drop_fn = state
-        .drop_fn()
-        .expect("drop_fn must be set when invoke_weak_drop is called");
+    let drop_fn = state.drop_fn();
 
-    // The this_ptr must be set - it's set when the resource is wrapped
+    // this_ptr is set when the resource is wrapped for JavaScript
     let this_ptr = state
         .this_ptr()
         .expect("this_ptr must be set when invoke_weak_drop is called");
 
-    // Remove from instance tracking before dropping to prevent double-free.
-    // Get the Realm from isolate and remove this instance from Resources.
+    // Remove from instance tracking before dropping to prevent double-free
+    // when Realm cleanup runs later.
     if let (Some(isolate), Some(type_id)) = (state.isolate(), state.type_id()) {
         let realm = unsafe { &mut *crate::ffi::realm_from_isolate(isolate.as_ffi()) };
         realm
@@ -437,7 +434,7 @@ unsafe fn invoke_weak_drop(state: usize) {
             .remove_instance_by_type_id(type_id, this_ptr);
     }
 
-    // Call the drop function with the instance pointer
+    // Drop the instance
     unsafe { drop_fn(this_ptr.as_ptr()) };
 }
 
