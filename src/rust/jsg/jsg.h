@@ -20,8 +20,6 @@ struct RustModuleRegistry: public ::workerd::rust::jsg::ModuleRegistry {
 
   void addBuiltinModule(
       ::rust::Str specifier, ModuleCallback moduleCallback, ModuleType moduleType) override {
-    // The CXX-generated ModuleType uses PascalCase variants (Bundle, Builtin, Internal) while
-    // workerd::jsg::ModuleType uses SCREAMING_CASE (BUNDLE, BUILTIN, INTERNAL).
     ::workerd::jsg::ModuleType jsgModuleType;
     switch (moduleType) {
       case ModuleType::Bundle:
