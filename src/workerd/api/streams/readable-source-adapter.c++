@@ -735,7 +735,9 @@ ReadableSourceKjAdapter::ReadableSourceKjAdapter(
     : state(KjState::create<KjOpen>(kj::heap<Active>(js, ioContext, kj::mv(stream)))),
       options(options),
       selfRef(
-          kj::rc<WeakRef<ReadableSourceKjAdapter>>(kj::Badge<ReadableSourceKjAdapter>{}, *this)) {}
+          kj::rc<WeakRef<ReadableSourceKjAdapter>>(kj::Badge<ReadableSourceKjAdapter>{}, *this)) {
+  state.transitionTo<KjOpen>(kj::heap<Active>(js, ioContext, kj::mv(stream)));
+}
 
 ReadableSourceKjAdapter::~ReadableSourceKjAdapter() noexcept(false) {
   selfRef->invalidate();
