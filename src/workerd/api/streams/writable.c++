@@ -15,7 +15,7 @@ WritableStreamDefaultWriter::WritableStreamDefaultWriter(): ioContext(tryGetIoCo
 }
 
 WritableStreamDefaultWriter::~WritableStreamDefaultWriter() noexcept(false) {
-  KJ_IF_SOME(attached, state.tryGetActive()) {
+  KJ_IF_SOME(attached, state.tryGetActiveUnsafe()) {
     attached.stream->getController().releaseWriter(*this, kj::none);
   }
 }
@@ -39,7 +39,7 @@ jsg::Promise<void> WritableStreamDefaultWriter::abort(
   if (state.is<Closed>()) {
     return js.resolvedPromise();
   }
-  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActive());
+  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActiveUnsafe());
   // In some edge cases, this writer is the last thing holding a strong
   // reference to the stream. Calling abort can cause the writers strong
   // reference to be cleared, so let's make sure we keep a reference to
@@ -67,7 +67,7 @@ jsg::Promise<void> WritableStreamDefaultWriter::close(jsg::Lock& js) {
   if (state.is<Closed>()) {
     return js.rejectedPromise<void>(js.v8TypeError("This WritableStream has been closed."_kj));
   }
-  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActive());
+  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActiveUnsafe());
   // In some edge cases, this writer is the last thing holding a strong
   // reference to the stream. Calling close can cause the writers strong
   // reference to be cleared, so let's make sure we keep a reference to
@@ -96,7 +96,7 @@ kj::Maybe<int> WritableStreamDefaultWriter::getDesiredSize() {
   if (state.is<Closed>()) {
     return 0;
   }
-  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActive());
+  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActiveUnsafe());
   return attached.stream->getController().getDesiredSize();
 }
 
@@ -117,7 +117,7 @@ void WritableStreamDefaultWriter::releaseLock(jsg::Lock& js) {
   // TODO(soon): Releasing the lock should cancel any pending writes.
   assertAttachedOrTerminal();
   // Closed and Released states are no-ops.
-  KJ_IF_SOME(attached, state.tryGetActive()) {
+  KJ_IF_SOME(attached, state.tryGetActiveUnsafe()) {
     // In some edge cases, this writer is the last thing holding a strong
     // reference to the stream. Calling releaseWriter can cause the writers
     // strong reference to be cleared, so let's make sure we keep a reference
@@ -144,7 +144,7 @@ jsg::Promise<void> WritableStreamDefaultWriter::write(
   if (state.is<Closed>()) {
     return js.rejectedPromise<void>(js.v8TypeError("This WritableStream has been closed."_kj));
   }
-  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActive());
+  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActiveUnsafe());
   return attached.stream->getController().write(js, chunk);
 }
 
@@ -165,7 +165,7 @@ bool WritableStream::inspectExpectsBytes() {
 }
 
 void WritableStreamDefaultWriter::visitForGc(jsg::GcVisitor& visitor) {
-  KJ_IF_SOME(attached, state.tryGetActive()) {
+  KJ_IF_SOME(attached, state.tryGetActiveUnsafe()) {
     visitor.visit(attached.stream);
   }
   visitor.visit(closedPromise, readyPromise);
@@ -583,7 +583,7 @@ jsg::Ref<WritableStream> WritableStream::deserialize(
 }
 
 void WritableStreamDefaultWriter::visitForMemoryInfo(jsg::MemoryTracker& tracker) const {
-  KJ_IF_SOME(attached, state.tryGetActive()) {
+  KJ_IF_SOME(attached, state.tryGetActiveUnsafe()) {
     tracker.trackField("attached", attached.stream);
   }
   tracker.trackField("closedPromise", closedPromise);

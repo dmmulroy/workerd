@@ -95,7 +95,7 @@ class ReadableLockImpl {
     }
 
     kj::Maybe<v8::Local<v8::Value>> tryGetErrored(jsg::Lock& js) override {
-      KJ_IF_SOME(errored, inner.state.template tryGet<StreamStates::Errored>()) {
+      KJ_IF_SOME(errored, inner.state.template tryGetUnsafe<StreamStates::Errored>()) {
         return errored.getHandle(js);
       }
       return kj::none;
@@ -213,7 +213,7 @@ class WritableLockImpl {
   LockState state = LockState::template create<Unlocked>();
 
   inline kj::Maybe<PipeLocked&> tryGetPipe() {
-    KJ_IF_SOME(locked, state.template tryGet<PipeLocked>()) {
+    KJ_IF_SOME(locked, state.template tryGetUnsafe<PipeLocked>()) {
       return locked;
     }
     return kj::none;
@@ -247,7 +247,7 @@ bool ReadableLockImpl<Controller>::lockReader(jsg::Lock& js, Controller& self, R
 
   if (self.state.template is<StreamStates::Closed>()) {
     maybeResolvePromise(js, lock.getClosedFulfiller());
-  } else KJ_IF_SOME(errored, self.state.template tryGet<StreamStates::Errored>()) {
+  } else KJ_IF_SOME(errored, self.state.template tryGetUnsafe<StreamStates::Errored>()) {
     maybeRejectPromise<void>(js, lock.getClosedFulfiller(), errored.getHandle(js));
   }
 
@@ -259,7 +259,7 @@ bool ReadableLockImpl<Controller>::lockReader(jsg::Lock& js, Controller& self, R
 template <typename Controller>
 void ReadableLockImpl<Controller>::releaseReader(
     Controller& self, Reader& reader, kj::Maybe<jsg::Lock&> maybeJs) {
-  KJ_IF_SOME(locked, state.template tryGet<ReaderLocked>()) {
+  KJ_IF_SOME(locked, state.template tryGetUnsafe<ReaderLocked>()) {
     KJ_ASSERT(&locked.getReader() == &reader);
 
     KJ_IF_SOME(js, maybeJs) {
@@ -317,7 +317,7 @@ void ReadableLockImpl<Controller>::visitForGc(jsg::GcVisitor& visitor) {
 
 template <typename Controller>
 void ReadableLockImpl<Controller>::onClose(jsg::Lock& js) {
-  KJ_IF_SOME(locked, state.template tryGet<ReaderLocked>()) {
+  KJ_IF_SOME(locked, state.template tryGetUnsafe<ReaderLocked>()) {
     try {
       maybeResolvePromise(js, locked.getClosedFulfiller());
     } catch (jsg::JsExceptionThrown&) {
@@ -334,7 +334,7 @@ void ReadableLockImpl<Controller>::onClose(jsg::Lock& js) {
 
 template <typename Controller>
 void ReadableLockImpl<Controller>::onError(jsg::Lock& js, v8::Local<v8::Value> reason) {
-  KJ_IF_SOME(locked, state.template tryGet<ReaderLocked>()) {
+  KJ_IF_SOME(locked, state.template tryGetUnsafe<ReaderLocked>()) {
     try {
       maybeRejectPromise<void>(js, locked.getClosedFulfiller(), reason);
     } catch (jsg::JsExceptionThrown&) {
@@ -384,7 +384,7 @@ bool WritableLockImpl<Controller>::lockWriter(jsg::Lock& js, Controller& self, W
   if (self.state.template is<StreamStates::Closed>()) {
     maybeResolvePromise(js, lock.getClosedFulfiller());
     maybeResolvePromise(js, lock.getReadyFulfiller());
-  } else KJ_IF_SOME(errored, self.state.template tryGet<StreamStates::Errored>()) {
+  } else KJ_IF_SOME(errored, self.state.template tryGetUnsafe<StreamStates::Errored>()) {
     maybeRejectPromise<void>(js, lock.getClosedFulfiller(), errored.getHandle(js));
     maybeRejectPromise<void>(js, lock.getReadyFulfiller(), errored.getHandle(js));
   } else {
@@ -401,7 +401,7 @@ bool WritableLockImpl<Controller>::lockWriter(jsg::Lock& js, Controller& self, W
 template <typename Controller>
 void WritableLockImpl<Controller>::releaseWriter(
     Controller& self, Writer& writer, kj::Maybe<jsg::Lock&> maybeJs) {
-  KJ_IF_SOME(locked, state.template tryGet<WriterLocked>()) {
+  KJ_IF_SOME(locked, state.template tryGetUnsafe<WriterLocked>()) {
     KJ_ASSERT(&locked.getWriter() == &writer);
     KJ_IF_SOME(js, maybeJs) {
       KJ_SWITCH_ONEOF(self.state) {
@@ -632,7 +632,7 @@ jsg::Promise<ReadResult> deferControllerStateChange(jsg::Lock& js,
         if (controller.state.template is<StreamStates::Closed>()) {
           controller.lock.onClose(js);
         } else if (controller.state.template is<StreamStates::Errored>()) {
-          KJ_IF_SOME(err, controller.state.template tryGet<StreamStates::Errored>()) {
+          KJ_IF_SOME(err, controller.state.template tryGetUnsafe<StreamStates::Errored>()) {
             controller.lock.onError(js, err.getHandle(js));
           }
         }
@@ -994,13 +994,13 @@ jsg::Promise<void> ReadableImpl<Self>::cancel(
     // This shouldn't happen but we handle the case anyway, just to be safe.
     return js.resolvedPromise();
   }
-  KJ_IF_SOME(errored, state.template tryGet<StreamStates::Errored>()) {
+  KJ_IF_SOME(errored, state.template tryGetUnsafe<StreamStates::Errored>()) {
     // We are already errored. There's nothing to cancel.
     // This shouldn't happen but we handle the case anyway, just to be safe.
     return js.rejectedPromise<void>(errored.getHandle(js));
   }
 
-  auto& queue = state.template get<Queue>();
+  auto& queue = state.template getUnsafe<Queue>();
   size_t consumerCount = queue.getConsumerCount();
   if (consumerCount > 1) {
     // If there is more than 1 consumer, then we just return here with an
@@ -1072,14 +1072,14 @@ template <typename Self>
 void ReadableImpl<Self>::enqueue(jsg::Lock& js, kj::Rc<Entry> entry, jsg::Ref<Self> self) {
   JSG_REQUIRE(canCloseOrEnqueue(), TypeError, "This ReadableStream is closed.");
   KJ_DEFER(pullIfNeeded(js, kj::mv(self)));
-  auto& queue = state.template get<Queue>();
+  auto& queue = state.template getUnsafe<Queue>();
   queue.push(js, kj::mv(entry));
 }
 
 template <typename Self>
 void ReadableImpl<Self>::close(jsg::Lock& js) {
   JSG_REQUIRE(canCloseOrEnqueue(), TypeError, "This ReadableStream is closed.");
-  auto& queue = state.template get<Queue>();
+  auto& queue = state.template getUnsafe<Queue>();
 
   if (queue.hasPartiallyFulfilledRead()) {
     auto error =
@@ -1109,7 +1109,7 @@ void ReadableImpl<Self>::doError(jsg::Lock& js, jsg::Value reason) {
     return;
   }
 
-  auto& queue = state.template get<Queue>();
+  auto& queue = state.template getUnsafe<Queue>();
   queue.error(js, reason.addRef(js));
   state.template transitionTo<StreamStates::Errored>(kj::mv(reason));
   algorithms.clear();
@@ -1123,7 +1123,7 @@ kj::Maybe<int> ReadableImpl<Self>::getDesiredSize() {
   if (state.template is<StreamStates::Errored>()) {
     return kj::none;
   }
-  return state.template get<Queue>().desiredSize();
+  return state.template getUnsafe<Queue>().desiredSize();
 }
 
 // We should call pull if any of the consumers known to the queue have read requests or
@@ -1168,9 +1168,9 @@ void ReadableImpl<Self>::pullIfNeeded(jsg::Lock& js, jsg::Ref<Self> self) {
 
 template <typename Self>
 void ReadableImpl<Self>::visitForGc(jsg::GcVisitor& visitor) {
-  KJ_IF_SOME(errored, state.template tryGet<StreamStates::Errored>()) {
+  KJ_IF_SOME(errored, state.template tryGetUnsafe<StreamStates::Errored>()) {
     visitor.visit(errored);
-  } else KJ_IF_SOME(queue, state.template tryGet<Queue>()) {
+  } else KJ_IF_SOME(queue, state.template tryGetUnsafe<Queue>()) {
     visitor.visit(queue);
   }
   KJ_IF_SOME(pendingCancel, maybePendingCancel) {
@@ -1182,7 +1182,7 @@ void ReadableImpl<Self>::visitForGc(jsg::GcVisitor& visitor) {
 template <typename Self>
 kj::Own<typename ReadableImpl<Self>::Consumer> ReadableImpl<Self>::getConsumer(
     kj::Maybe<ReadableImpl<Self>::StateListener&> listener) {
-  auto& queue = state.template get<Queue>();
+  auto& queue = state.template getUnsafe<Queue>();
   return kj::heap<typename ReadableImpl<Self>::Consumer>(queue, listener);
 }
 
@@ -1408,7 +1408,7 @@ void WritableImpl<Self>::error(jsg::Lock& js, jsg::Ref<Self> self, v8::Local<v8:
 
 template <typename Self>
 void WritableImpl<Self>::finishErroring(jsg::Lock& js, jsg::Ref<Self> self) {
-  auto erroring = kj::mv(KJ_ASSERT_NONNULL(state.template tryGet<StreamStates::Erroring>()));
+  auto erroring = kj::mv(KJ_ASSERT_NONNULL(state.template tryGetUnsafe<StreamStates::Erroring>()));
   auto reason = erroring.reason.getHandle(js);
   KJ_ASSERT(inFlightWrite == kj::none);
   KJ_ASSERT(inFlightClose == kj::none);
@@ -1500,7 +1500,8 @@ bool WritableImpl<Self>::isCloseQueuedOrInFlight() {
 template <typename Self>
 void WritableImpl<Self>::rejectCloseAndClosedPromiseIfNeeded(jsg::Lock& js) {
   algorithms.clear();
-  auto reason = KJ_ASSERT_NONNULL(state.template tryGet<StreamStates::Errored>()).getHandle(js);
+  auto reason =
+      KJ_ASSERT_NONNULL(state.template tryGetUnsafe<StreamStates::Errored>()).getHandle(js);
   maybeRejectPromise<void>(js, closeRequest, reason);
   PendingAbort::dequeue(maybePendingAbort);
   doError(js, reason);
@@ -1606,7 +1607,7 @@ jsg::Promise<void> WritableImpl<Self>::write(
     }
   }
 
-  KJ_IF_SOME(error, state.template tryGet<StreamStates::Errored>()) {
+  KJ_IF_SOME(error, state.template tryGetUnsafe<StreamStates::Errored>()) {
     return js.rejectedPromise<void>(error.addRef(js));
   }
 
@@ -1614,7 +1615,7 @@ jsg::Promise<void> WritableImpl<Self>::write(
     return js.rejectedPromise<void>(js.v8TypeError("This ReadableStream is closed."_kj));
   }
 
-  KJ_IF_SOME(erroring, state.template tryGet<StreamStates::Erroring>()) {
+  KJ_IF_SOME(erroring, state.template tryGetUnsafe<StreamStates::Erroring>()) {
     return js.rejectedPromise<void>(erroring.reason.addRef(js));
   }
 
@@ -1635,9 +1636,9 @@ jsg::Promise<void> WritableImpl<Self>::write(
 
 template <typename Self>
 void WritableImpl<Self>::visitForGc(jsg::GcVisitor& visitor) {
-  KJ_IF_SOME(error, state.template tryGet<StreamStates::Errored>()) {
+  KJ_IF_SOME(error, state.template tryGetUnsafe<StreamStates::Errored>()) {
     visitor.visit(error);
-  } else KJ_IF_SOME(erroring, state.template tryGet<StreamStates::Erroring>()) {
+  } else KJ_IF_SOME(erroring, state.template tryGetUnsafe<StreamStates::Erroring>()) {
     visitor.visit(erroring.reason);
   }
   visitor.visit(inFlightWrite, inFlightClose, closeRequest, algorithms, signal);
@@ -1989,7 +1990,7 @@ ReadableStreamDefaultController::ReadableStreamDefaultController(
 
 kj::Maybe<StreamStates::Errored> ReadableStreamDefaultController::getMaybeErrorState(
     jsg::Lock& js) {
-  KJ_IF_SOME(errored, impl.state.tryGet<StreamStates::Errored>()) {
+  KJ_IF_SOME(errored, impl.state.tryGetUnsafe<StreamStates::Errored>()) {
     return errored.addRef(js);
   }
   return kj::none;
@@ -2273,7 +2274,7 @@ void ReadableByteStreamController::error(jsg::Lock& js, v8::Local<v8::Value> rea
 kj::Maybe<jsg::Ref<ReadableStreamBYOBRequest>> ReadableByteStreamController::getByobRequest(
     jsg::Lock& js) {
   if (maybeByobRequest == kj::none) {
-    KJ_IF_SOME(queue, impl.state.tryGet<ByteQueue>()) {
+    KJ_IF_SOME(queue, impl.state.tryGetUnsafe<ByteQueue>()) {
       KJ_IF_SOME(pendingByob, queue.nextPendingByobReadRequest()) {
         maybeByobRequest =
             js.alloc<ReadableStreamBYOBRequest>(js, kj::mv(pendingByob), weakSelf.addRef());
@@ -2341,7 +2342,7 @@ jsg::Promise<void> ReadableStreamJsController::cancel(
   if (state.pendingStateIs<StreamStates::Closed>()) {
     return js.resolvedPromise();
   }
-  KJ_IF_SOME(pendingError, state.tryGetPendingState<StreamStates::Errored>()) {
+  KJ_IF_SOME(pendingError, state.tryGetPendingStateUnsafe<StreamStates::Errored>()) {
     return js.rejectedPromise<void>(pendingError.addRef(js));
   }
 
@@ -2468,7 +2469,7 @@ kj::Maybe<jsg::Promise<ReadResult>> ReadableStreamJsController::read(
     }
 
     // Check for pending error first (deferred error during a prior read operation)
-    KJ_IF_SOME(pendingError, state.tryGetPendingState<StreamStates::Errored>()) {
+    KJ_IF_SOME(pendingError, state.tryGetPendingStateUnsafe<StreamStates::Errored>()) {
       return js.rejectedPromise<ReadResult>(pendingError.addRef(js));
     }
 
@@ -2492,7 +2493,7 @@ kj::Maybe<jsg::Promise<ReadResult>> ReadableStreamJsController::read(
     KJ_ASSERT(maybeByobOptions == kj::none);
     return js.resolvedPromise(ReadResult{.done = true});
   }
-  KJ_IF_SOME(pendingError, state.tryGetPendingState<StreamStates::Errored>()) {
+  KJ_IF_SOME(pendingError, state.tryGetPendingStateUnsafe<StreamStates::Errored>()) {
     return js.rejectedPromise<ReadResult>(pendingError.addRef(js));
   }
 
@@ -2544,7 +2545,7 @@ ReadableStreamController::Tee ReadableStreamJsController::tee(jsg::Lock& js) {
           js.alloc<ReadableStream>(kj::heap<ReadableStreamJsController>(StreamStates::Closed())),
     };
   }
-  KJ_IF_SOME(pendingError, state.tryGetPendingState<StreamStates::Errored>()) {
+  KJ_IF_SOME(pendingError, state.tryGetPendingStateUnsafe<StreamStates::Errored>()) {
     return Tee{
       .branch1 =
           js.alloc<ReadableStream>(kj::heap<ReadableStreamJsController>(pendingError.addRef(js))),
@@ -2652,7 +2653,7 @@ kj::Maybe<ReadableStreamController::PipeController&> ReadableStreamJsController:
 
 void ReadableStreamJsController::visitForGc(jsg::GcVisitor& visitor) {
   // Visit pending state if it's an error (Closed has no GC-traceable content)
-  KJ_IF_SOME(pendingError, state.tryGetPendingState<StreamStates::Errored>()) {
+  KJ_IF_SOME(pendingError, state.tryGetPendingStateUnsafe<StreamStates::Errored>()) {
     visitor.visit(pendingError);
   }
 
@@ -2703,11 +2704,11 @@ kj::Maybe<int> ReadableStreamJsController::getDesiredSize() {
 
 kj::Maybe<v8::Local<v8::Value>> ReadableStreamJsController::isErrored(jsg::Lock& js) {
   // Check for pending error first
-  KJ_IF_SOME(pendingError, state.tryGetPendingState<StreamStates::Errored>()) {
+  KJ_IF_SOME(pendingError, state.tryGetPendingStateUnsafe<StreamStates::Errored>()) {
     return pendingError.getHandle(js);
   }
   // Pending Closed means not errored, so we can just check current state
-  return state.tryGet<StreamStates::Errored>().map(
+  return state.tryGetUnsafe<StreamStates::Errored>().map(
       [&](jsg::Value& reason) { return reason.getHandle(js); });
 }
 
@@ -3389,7 +3390,7 @@ jsg::Ref<AbortSignal> WritableStreamDefaultController::getSignal() {
 }
 
 kj::Maybe<v8::Local<v8::Value>> WritableStreamDefaultController::isErroring(jsg::Lock& js) {
-  KJ_IF_SOME(erroring, impl.state.tryGet<StreamStates::Erroring>()) {
+  KJ_IF_SOME(erroring, impl.state.tryGetUnsafe<StreamStates::Erroring>()) {
     return erroring.reason.getHandle(js);
   }
   return kj::none;
@@ -3423,7 +3424,7 @@ WritableStreamJsController::WritableStreamJsController(): ioContext(tryGetIoCont
 
 WritableStreamJsController::~WritableStreamJsController() noexcept(false) {
   // Clear algorithms to break circular references during destruction
-  KJ_IF_SOME(controller, state.tryGet<Controller>()) {
+  KJ_IF_SOME(controller, state.tryGetUnsafe<Controller>()) {
     controller->clearAlgorithms();
   }
   // Clear the state to break the circular reference to the controller.
@@ -3517,12 +3518,12 @@ void WritableStreamJsController::doClose(jsg::Lock& js) {
   if (state.isTerminal()) return;
 
   // Clear algorithms to break circular references before changing state
-  KJ_IF_SOME(controller, state.tryGet<Controller>()) {
+  KJ_IF_SOME(controller, state.tryGetUnsafe<Controller>()) {
     controller->clearAlgorithms();
   }
 
   state.transitionTo<StreamStates::Closed>();
-  KJ_IF_SOME(locked, lock.state.tryGet<WriterLocked>()) {
+  KJ_IF_SOME(locked, lock.state.tryGetUnsafe<WriterLocked>()) {
     maybeResolvePromise(js, locked.getClosedFulfiller());
     maybeResolvePromise(js, locked.getReadyFulfiller());
   } else {
@@ -3535,12 +3536,12 @@ void WritableStreamJsController::doError(jsg::Lock& js, v8::Local<v8::Value> rea
   if (state.isTerminal()) return;
 
   // Clear algorithms to break circular references before changing state
-  KJ_IF_SOME(controller, state.tryGet<Controller>()) {
+  KJ_IF_SOME(controller, state.tryGetUnsafe<Controller>()) {
     controller->clearAlgorithms();
   }
 
   state.transitionTo<StreamStates::Errored>(js.v8Ref(reason));
-  KJ_IF_SOME(locked, lock.state.tryGet<WriterLocked>()) {
+  KJ_IF_SOME(locked, lock.state.tryGetUnsafe<WriterLocked>()) {
     maybeRejectPromise<void>(js, locked.getClosedFulfiller(), reason);
     maybeResolvePromise(js, locked.getReadyFulfiller());
   } else {
@@ -3567,7 +3568,7 @@ kj::Maybe<int> WritableStreamJsController::getDesiredSize() {
 }
 
 kj::Maybe<v8::Local<v8::Value>> WritableStreamJsController::isErroring(jsg::Lock& js) {
-  KJ_IF_SOME(controller, state.tryGet<Controller>()) {
+  KJ_IF_SOME(controller, state.tryGetUnsafe<Controller>()) {
     return controller->isErroring(js);
   }
   return kj::none;
@@ -3578,7 +3579,7 @@ bool WritableStreamDefaultController::isErroring() const {
 }
 
 kj::Maybe<v8::Local<v8::Value>> WritableStreamJsController::isErroredOrErroring(jsg::Lock& js) {
-  KJ_IF_SOME(err, state.tryGetError()) {
+  KJ_IF_SOME(err, state.tryGetErrorUnsafe()) {
     return err.getHandle(js);
   }
   return isErroring(js);
@@ -3616,7 +3617,7 @@ bool WritableStreamJsController::lockWriter(jsg::Lock& js, Writer& writer) {
 
 void WritableStreamJsController::maybeRejectReadyPromise(
     jsg::Lock& js, v8::Local<v8::Value> reason) {
-  KJ_IF_SOME(writerLock, lock.state.tryGet<WriterLocked>()) {
+  KJ_IF_SOME(writerLock, lock.state.tryGetUnsafe<WriterLocked>()) {
     if (writerLock.getReadyFulfiller() != kj::none) {
       maybeRejectPromise<void>(js, writerLock.getReadyFulfiller(), reason);
     } else {
@@ -3629,7 +3630,7 @@ void WritableStreamJsController::maybeRejectReadyPromise(
 }
 
 void WritableStreamJsController::maybeResolveReadyPromise(jsg::Lock& js) {
-  KJ_IF_SOME(writerLock, lock.state.tryGet<WriterLocked>()) {
+  KJ_IF_SOME(writerLock, lock.state.tryGetUnsafe<WriterLocked>()) {
     maybeResolvePromise(js, writerLock.getReadyFulfiller());
   }
 }
@@ -3726,7 +3727,7 @@ jsg::Promise<void> WritableStreamJsController::pipeLoop(jsg::Lock& js) {
     return rejectedMaybeHandledPromise<void>(js, errored, pipeThrough);
   }
 
-  KJ_IF_SOME(errored, state.tryGet<StreamStates::Errored>()) {
+  KJ_IF_SOME(errored, state.tryGetUnsafe<StreamStates::Errored>()) {
     lock.releasePipeLock();
     auto reason = errored.getHandle(js);
     if (!preventCancel) {
@@ -3833,7 +3834,7 @@ jsg::Promise<void> WritableStreamJsController::pipeLoop(jsg::Lock& js) {
 }
 
 void WritableStreamJsController::updateBackpressure(jsg::Lock& js, bool backpressure) {
-  KJ_IF_SOME(writerLock, lock.state.tryGet<WriterLocked>()) {
+  KJ_IF_SOME(writerLock, lock.state.tryGetUnsafe<WriterLocked>()) {
     if (backpressure) {
       // Per the spec, when backpressure is updated and is true, we replace the existing
       // ready promise on the writer with a new pending promise, regardless of whether
@@ -4253,7 +4254,7 @@ void ReadableStreamJsController::jsgGetMemoryInfo(jsg::MemoryTracker& tracker) c
   tracker.trackField("lock", lock);
 
   // Track pending error state if present (Closed has no trackable content)
-  KJ_IF_SOME(pendingError, state.tryGetPendingState<StreamStates::Errored>()) {
+  KJ_IF_SOME(pendingError, state.tryGetPendingStateUnsafe<StreamStates::Errored>()) {
     tracker.trackField("pendingError", pendingError);
   }
 }
