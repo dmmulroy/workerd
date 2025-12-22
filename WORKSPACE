@@ -13,7 +13,3 @@ http_archive(
     type = "tgz",
     url = "https://github.com/cloudflare/workerd-cxx/tarball/916f0e7be8f1d43fe5ece1b72edd3c5844243d7b",
 )
-
-load("//build/deps:dep_pyodide.bzl", "dep_pyodide")
-
-dep_pyodide()
