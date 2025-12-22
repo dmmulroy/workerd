@@ -134,8 +134,6 @@ WritableStreamSinkJsAdapter::WritableStreamSinkJsAdapter(
       backpressureState(newBackpressureState(js)),
       selfRef(kj::rc<WeakRef<WritableStreamSinkJsAdapter>>(
           kj::Badge<WritableStreamSinkJsAdapter>{}, *this)) {
-  state.transitionTo<Open>(
-      ioContext.addObject(kj::heap<Active>(kj::mv(sink), kj::mv(options).orDefault({}))));
   // We want the initial backpressure state to be "ready".
   backpressureState.release(js);
 }
