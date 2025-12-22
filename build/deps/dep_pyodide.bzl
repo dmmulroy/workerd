@@ -98,4 +98,11 @@ def dep_pyodide():
         _pyodide_packages(**info)
 
     for ver in BUNDLE_VERSION_INFO.values():
+        if ver["name"] == "development" or ver["name"] == "0.26.0a2":
+            continue  # development is a copy of earlier bundle snapshots
         _snapshot_http_files(**ver)
+
+def _impl(module_ctx):
+    dep_pyodide()
+
+pyodide = module_extension(implementation = _impl)
