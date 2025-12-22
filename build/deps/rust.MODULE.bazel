@@ -58,7 +58,8 @@ http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "ht
 
 http_archive(
     name = "workerd-cxx",
-    repo_mapping = {"@crates.io": "@crates_vendor"},
+    patch_args = ["-p1"],
+    patches = ["//:patches/workerd-cxx.patch"],
     sha256 = "7ddce8e81d0b81adf6f07f18376a6fea9dca42e6b03b2fcf703c62196c270ad0",
     strip_prefix = "cloudflare-workerd-cxx-916f0e7",
     type = "tgz",
