@@ -1,7 +1,4 @@
-mod types;
-
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
 use quote::ToTokens;
 use quote::quote;
 use syn::Data;
@@ -10,10 +7,8 @@ use syn::Fields;
 use syn::FnArg;
 use syn::ItemFn;
 use syn::ItemImpl;
-use syn::Type;
 use syn::parse_macro_input;
 use syn::spanned::Spanned;
-use types::is_str_ref;
 
 /// Generates `jsg::Struct` and `jsg::Type` implementations for data structures.
 ///
@@ -104,13 +99,15 @@ pub fn jsg_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let (unwraps, arg_refs): (Vec<_>, Vec<_>) = params
+    let (unwraps, arg_names): (Vec<_>, Vec<_>) = params
         .iter()
         .enumerate()
         .map(|(i, ty)| {
             let arg = syn::Ident::new(&format!("arg{i}"), fn_name.span());
-            let (unwrap, arg_ref) = generate_unwrap(&arg, ty, i);
-            (unwrap, arg_ref)
+            let unwrap = quote! {
+                let Some(#arg) = <#ty as jsg::Wrappable>::try_unwrap(&mut lock, args.get(#i)) else { return; };
+            };
+            (unwrap, arg)
         })
         .unzip();
 
@@ -124,27 +121,11 @@ pub fn jsg_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
             #(#unwraps)*
             let this = args.this();
             let self_ = jsg::unwrap_resource::<Self>(&mut lock, this);
-            let result = self_.#fn_name(#(#arg_refs),*);
+            let result = self_.#fn_name(#(#arg_names),*);
             jsg::Wrappable::wrap_return(result, &mut lock, &mut args);
         }
     }
     .into()
-}
-
-fn generate_unwrap(arg: &syn::Ident, ty: &Type, index: usize) -> (TokenStream2, TokenStream2) {
-    // &str: unwrap as String and borrow
-    if is_str_ref(ty) {
-        let unwrap = quote! {
-            let Some(#arg) = <String as jsg::Wrappable>::try_unwrap(&mut lock, args.get(#index)) else { return; };
-        };
-        return (unwrap, quote! { &#arg });
-    }
-
-    // All types use Wrappable::try_unwrap
-    let unwrap = quote! {
-        let Some(#arg) = <#ty as jsg::Wrappable>::try_unwrap(&mut lock, args.get(#index)) else { return; };
-    };
-    (unwrap, quote! { #arg })
 }
 
 /// Generates boilerplate for JSG resources.
