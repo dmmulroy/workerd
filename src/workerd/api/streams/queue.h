@@ -411,11 +411,9 @@ class ConsumerImpl final {
     KJ_IF_SOME(errored, state.tryGetErrorUnsafe()) {
       return request.reject(js, errored.reason);
     }
-    KJ_IF_SOME(ready, state.tryGetActiveUnsafe()) {
-      Self::handleRead(js, ready, *this, queue, kj::mv(request));
-      return maybeDrainAndSetState(js);
-    }
-    KJ_UNREACHABLE;
+    auto& ready = state.requireActiveUnsafe();
+    Self::handleRead(js, ready, *this, queue, kj::mv(request));
+    return maybeDrainAndSetState(js);
   }
 
   void reset() {

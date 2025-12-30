@@ -790,7 +790,8 @@ class ReadableStreamJsController final: public ReadableStreamController {
   //   ByteReadable -> Errored (doError() called)
   // Note: No single ActiveState since there are two active variants.
   // PendingStates allows Closed/Errored transitions to be deferred during reads.
-  using State = StateMachine<TerminalStates<StreamStates::Closed, StreamStates::Errored>,
+  using State = StateMachine<TerminalStates<StreamStates::Closed>,
+      ErrorState<StreamStates::Errored>,
       PendingStates<StreamStates::Closed, StreamStates::Errored>,
       Initial,
       StreamStates::Closed,
@@ -2951,7 +2952,8 @@ class PumpToReader {
   // Closed and kj::Exception are terminal states (pump is done).
   // jsg::Ref<ReadableStream> is the initial state (has stream to pump).
   // Pumping is the active state (pump is in progress).
-  using State = StateMachine<TerminalStates<StreamStates::Closed, kj::Exception>,
+  using State = StateMachine<TerminalStates<StreamStates::Closed>,
+      ErrorState<kj::Exception>,
       Pumping,
       StreamStates::Closed,
       kj::Exception,
@@ -3056,14 +3058,11 @@ class PumpToReader {
           if (byteStream) {
             jsg::BackingStore backing = bufferSource.detach(js);
             return backing.asArrayPtr().attach(kj::mv(backing));
-          } else {
-            // We do not detach in this case because, as bad as an idea as it is,
-            // the stream spec does allow a single typedarray/arraybuffer instance
-            // to be queued multiple times when using value-oriented streams.
-            return bufferSource.asArrayPtr().attach(kj::mv(bufferSource));
           }
-
-          KJ_UNREACHABLE;
+          // We do not detach in this case because, as bad as an idea as it is,
+          // the stream spec does allow a single typedarray/arraybuffer instance
+          // to be queued multiple times when using value-oriented streams.
+          return bufferSource.asArrayPtr().attach(kj::mv(bufferSource));
         }),
                 [](auto& js, jsg::Value exception) mutable -> Result { return kj::mv(exception); })
             .then(js, ioContext.addFunctor( JSG_VISITABLE_LAMBDA((readable = kj::mv(readable), pumpToReader = kj::mv(pumpToReader)), (readable), (jsg::Lock & js, Result result) mutable {

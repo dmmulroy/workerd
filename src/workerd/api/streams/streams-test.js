@@ -457,9 +457,7 @@ export const testCancelPipethrough = {
     reader.cancel(new Error('boom'));
     reader.releaseLock();
 
-    // We've got to wait a tick to allow the event loop to turn over to
-    // process the abort... This is due to a quirk of IdentityTransformStream
-    // being a kj-backed stream requiring the event loop to process the abort.
+    // We've got to wait a tick to allow the cancel to propagate
     await scheduler.wait(1);
 
     assert.ok(!rs.locked);
@@ -475,6 +473,8 @@ export const testCancelPipethrough = {
   },
 };
 
+// Same as testCancelPipethrough but uses a JavaScript-backed TransformStream
+// instead of IdentityTransformStream. The behavior should be the same.
 export const testCancelPipethrough2 = {
   async test() {
     const enc = new TextEncoder();
@@ -493,6 +493,9 @@ export const testCancelPipethrough2 = {
 
     reader.cancel(new Error('boom'));
     reader.releaseLock();
+
+    // We've got to wait a tick to allow the cancel to propagate
+    await scheduler.wait(1);
 
     assert.ok(!rs.locked);
     assert.ok(!transform.readable.locked);

@@ -39,7 +39,7 @@ jsg::Promise<void> WritableStreamDefaultWriter::abort(
   if (state.is<Closed>()) {
     return js.resolvedPromise();
   }
-  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActiveUnsafe());
+  auto& attached = state.requireActiveUnsafe();
   // In some edge cases, this writer is the last thing holding a strong
   // reference to the stream. Calling abort can cause the writers strong
   // reference to be cleared, so let's make sure we keep a reference to
@@ -67,7 +67,7 @@ jsg::Promise<void> WritableStreamDefaultWriter::close(jsg::Lock& js) {
   if (state.is<Closed>()) {
     return js.rejectedPromise<void>(js.v8TypeError("This WritableStream has been closed."_kj));
   }
-  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActiveUnsafe());
+  auto& attached = state.requireActiveUnsafe();
   // In some edge cases, this writer is the last thing holding a strong
   // reference to the stream. Calling close can cause the writers strong
   // reference to be cleared, so let's make sure we keep a reference to
@@ -96,7 +96,7 @@ kj::Maybe<int> WritableStreamDefaultWriter::getDesiredSize() {
   if (state.is<Closed>()) {
     return 0;
   }
-  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActiveUnsafe());
+  auto& attached = state.requireActiveUnsafe();
   return attached.stream->getController().getDesiredSize();
 }
 
@@ -144,7 +144,7 @@ jsg::Promise<void> WritableStreamDefaultWriter::write(
   if (state.is<Closed>()) {
     return js.rejectedPromise<void>(js.v8TypeError("This WritableStream has been closed."_kj));
   }
-  auto& attached = KJ_ASSERT_NONNULL(state.tryGetActiveUnsafe());
+  auto& attached = state.requireActiveUnsafe();
   return attached.stream->getController().write(js, chunk);
 }
 

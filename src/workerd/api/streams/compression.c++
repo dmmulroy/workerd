@@ -249,8 +249,7 @@ class CompressionStreamBase: public kj::Refcounted,
   explicit CompressionStreamBase(kj::String format,
       Context::ContextFlags flags,
       kj::Arc<const jsg::ExternalMemoryTarget>&& externalMemoryTarget)
-      : state(decltype(state)::template create<Open>()),
-        context(mode, format, flags, kj::mv(externalMemoryTarget)) {}
+      : context(mode, format, flags, kj::mv(externalMemoryTarget)) {}
 
   // WritableStreamSink implementation ---------------------------------------------------
 
@@ -307,16 +306,6 @@ class CompressionStreamBase: public kj::Refcounted,
   virtual bool isInTerminalState() = 0;
 
  private:
-  // Helper to check that the stream is still active (Open state).
-  // Throws an appropriate error if the stream has ended or errored.
-  void requireActive(kj::StringPtr errorMessage) {
-    KJ_IF_SOME(exception, state.tryGetErrorUnsafe()) {
-      kj::throwFatalException(kj::cp(exception));
-    }
-    // isActive() returns true only if in Open state (the ActiveState)
-    JSG_REQUIRE(state.isActive(), Error, errorMessage);
-  }
-
   struct PendingRead {
     kj::ArrayPtr<kj::byte> buffer;
     size_t minBytes = 1;
@@ -337,7 +326,6 @@ class CompressionStreamBase: public kj::Refcounted,
 
     canceler.cancel(kj::cp(reason));
     transitionToErrored(kj::mv(reason));
-    //state = kj::mv(reason);
   }
 
   kj::Promise<size_t> tryReadInternal(kj::ArrayPtr<kj::byte> dest, size_t minBytes) {

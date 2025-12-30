@@ -49,15 +49,13 @@ jsg::Promise<void> ReaderImpl::cancel(
   if (state.is<Closed>()) {
     return js.resolvedPromise();
   }
-  KJ_IF_SOME(attached, state.tryGetActiveUnsafe()) {
-    // In some edge cases, this reader is the last thing holding a strong
-    // reference to the stream. Calling cancel might cause the readers strong
-    // reference to be cleared, so let's make sure we keep a reference to
-    // the stream at least until the call to cancel completes.
-    auto ref = attached.stream.addRef();
-    return attached.stream->getController().cancel(js, maybeReason);
-  }
-  KJ_UNREACHABLE;
+  auto& attached = state.requireActiveUnsafe();
+  // In some edge cases, this reader is the last thing holding a strong
+  // reference to the stream. Calling cancel might cause the readers strong
+  // reference to be cleared, so let's make sure we keep a reference to
+  // the stream at least until the call to cancel completes.
+  auto ref = attached.stream.addRef();
+  return attached.stream->getController().cancel(js, maybeReason);
 }
 
 jsg::MemoizedIdentity<jsg::Promise<void>>& ReaderImpl::getClosed() {
@@ -82,32 +80,30 @@ jsg::Promise<ReadResult> ReaderImpl::read(
     return js.rejectedPromise<ReadResult>(
         js.v8TypeError("This ReadableStream has been closed."_kj));
   }
-  KJ_IF_SOME(attached, state.tryGetActiveUnsafe()) {
-    KJ_IF_SOME(options, byobOptions) {
-      // Per the spec, we must perform these checks before disturbing the stream.
-      size_t atLeast = options.atLeast.orDefault(1);
+  auto& attached = state.requireActiveUnsafe();
+  KJ_IF_SOME(options, byobOptions) {
+    // Per the spec, we must perform these checks before disturbing the stream.
+    size_t atLeast = options.atLeast.orDefault(1);
 
-      if (options.byteLength == 0) {
-        return js.rejectedPromise<ReadResult>(
-            js.v8TypeError("You must call read() on a \"byob\" reader with a positive-sized "
-                           "TypedArray object."_kj));
-      }
-      if (atLeast == 0) {
-        return js.rejectedPromise<ReadResult>(js.v8TypeError(
-            kj::str("Requested invalid minimum number of bytes to read (", atLeast, ").")));
-      }
-      if (atLeast > options.byteLength) {
-        return js.rejectedPromise<ReadResult>(js.v8TypeError(kj::str("Minimum bytes to read (",
-            atLeast, ") exceeds size of buffer (", options.byteLength, ").")));
-      }
-
-      jsg::BufferSource source(js, options.bufferView.getHandle(js));
-      options.atLeast = atLeast * source.getElementSize();
+    if (options.byteLength == 0) {
+      return js.rejectedPromise<ReadResult>(
+          js.v8TypeError("You must call read() on a \"byob\" reader with a positive-sized "
+                         "TypedArray object."_kj));
+    }
+    if (atLeast == 0) {
+      return js.rejectedPromise<ReadResult>(js.v8TypeError(
+          kj::str("Requested invalid minimum number of bytes to read (", atLeast, ").")));
+    }
+    if (atLeast > options.byteLength) {
+      return js.rejectedPromise<ReadResult>(js.v8TypeError(kj::str("Minimum bytes to read (",
+          atLeast, ") exceeds size of buffer (", options.byteLength, ").")));
     }
 
-    return KJ_ASSERT_NONNULL(attached.stream->getController().read(js, kj::mv(byobOptions)));
+    jsg::BufferSource source(js, options.bufferView.getHandle(js));
+    options.atLeast = atLeast * source.getElementSize();
   }
-  KJ_UNREACHABLE;
+
+  return KJ_ASSERT_NONNULL(attached.stream->getController().read(js, kj::mv(byobOptions)));
 }
 
 void ReaderImpl::releaseLock(jsg::Lock& js) {
