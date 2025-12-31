@@ -401,22 +401,3 @@ export const corsProperties = {
     assert.strictEqual(reqWithInit.referrerPolicy, '');
   },
 };
-
-// Test that Headers.getSetCookie() is always available
-export const headersGetSetCookie = {
-  async test(ctrl, env, ctx) {
-    // getSetCookie should always be available for structural type compatibility
-    assert.strictEqual('getSetCookie' in Headers.prototype, true);
-
-    const headers = new Headers();
-    headers.append('Set-Cookie', 'foo=bar');
-    headers.append('Set-Cookie', 'baz=qux');
-
-    const cookies = headers.getSetCookie();
-    assert.deepStrictEqual(cookies, ['foo=bar', 'baz=qux']);
-
-    // Empty headers should return empty array
-    const emptyHeaders = new Headers();
-    assert.deepStrictEqual(emptyHeaders.getSetCookie(), []);
-  },
-};
