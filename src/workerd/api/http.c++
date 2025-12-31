@@ -44,10 +44,13 @@ Request::CacheMode getCacheModeFromName(kj::StringPtr value) {
   JSG_FAIL_REQUIRE(TypeError, kj::str("Unsupported cache mode: ", value));
 }
 
-jsg::Optional<kj::StringPtr> getCacheModeName(Request::CacheMode mode) {
+kj::StringPtr getCacheModeName(Request::CacheMode mode) {
   switch (mode) {
     case (Request::CacheMode::NONE):
-      return kj::none;
+      // Return "default" for structural type compatibility with lib.dom.d.ts.
+      // Previously returned kj::none (undefined), but the standard Request.cache
+      // property is always a string, never undefined.
+      return "default"_kj;
     case (Request::CacheMode::NOCACHE):
       return "no-cache"_kj;
     case (Request::CacheMode::NOSTORE):
@@ -424,7 +427,7 @@ jsg::Ref<Request> Request::coerce(
       : Request::constructor(js, kj::mv(input), kj::mv(init));
 }
 
-jsg::Optional<kj::StringPtr> Request::getCache(jsg::Lock& js) {
+kj::StringPtr Request::getCache(jsg::Lock& js) {
   return getCacheModeName(cacheMode);
 }
 Request::CacheMode Request::getCacheMode() {
@@ -825,13 +828,11 @@ void Request::serialize(jsg::Lock& js,
 
     .cf = cf.getRef(js),
 
-    .cache = getCacheModeName(cacheMode).map(
-        [](kj::StringPtr name) -> kj::String { return kj::str(name); }),
+    // Only serialize cache if it's not the default "default" value
+    .cache = cacheMode == CacheMode::NONE
+        ? jsg::Optional<kj::String>()
+        : kj::str(getCacheModeName(cacheMode)),
 
-    // .mode is unimplemented
-    // .credentials is unimplemented
-    // .referrer is unimplemented
-    // .referrerPolicy is unimplemented
     // .integrity is required to be empty
 
     // If an AbortSignal is present, we'll try to serialize it. As of this writing, AbortSignal

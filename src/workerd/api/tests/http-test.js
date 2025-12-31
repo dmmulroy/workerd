@@ -142,10 +142,10 @@ export const test = {
       body: 'message',
       headers: { 'Content-Type': 'text/plain' },
     });
-    if (env.CACHE_ENABLED) {
-      assert.strictEqual(
-        util.inspect(request),
-        `Request {
+    // cache and CORS properties are now always present for structural type compatibility
+    assert.strictEqual(
+      util.inspect(request),
+      `Request {
   method: 'POST',
   url: 'http://placeholder',
   headers: Headers(1) { 'content-type' => 'text/plain', [immutable]: false },
@@ -155,7 +155,12 @@ export const test = {
   cf: undefined,
   integrity: '',
   keepalive: false,
-  cache: undefined,
+  mode: 'no-cors',
+  credentials: 'same-origin',
+  destination: '',
+  referrer: 'about:client',
+  referrerPolicy: '',
+  cache: 'default',
   body: ReadableStream {
     locked: false,
     [state]: 'readable',
@@ -164,30 +169,7 @@ export const test = {
   },
   bodyUsed: false
 }`
-      );
-    } else {
-      assert.strictEqual(
-        util.inspect(request),
-        `Request {
-  method: 'POST',
-  url: 'http://placeholder',
-  headers: Headers(1) { 'content-type' => 'text/plain', [immutable]: false },
-  redirect: 'follow',
-  fetcher: null,
-  signal: AbortSignal { aborted: false, reason: undefined, onabort: null },
-  cf: undefined,
-  integrity: '',
-  keepalive: false,
-  body: ReadableStream {
-    locked: false,
-    [state]: 'readable',
-    [supportsBYOB]: true,
-    [length]: 7n
-  },
-  bodyUsed: false
-}`
-      );
-    }
+    );
 
     // Check response with immutable headers
     const response = await env.SERVICE.fetch('http://placeholder/not-found');
@@ -306,10 +288,12 @@ export const cacheMode = {
       'reload',
       'unsupported',
     ];
-    assert.strictEqual('cache' in Request.prototype, env.CACHE_ENABLED);
+    // cache property is now always present for structural type compatibility
+    assert.strictEqual('cache' in Request.prototype, true);
     {
+      // cache now returns "default" instead of undefined when not explicitly set
       const req = new Request('https://example.org', {});
-      assert.strictEqual(req.cache, undefined);
+      assert.strictEqual(req.cache, 'default');
     }
     if (!env.CACHE_ENABLED) {
       failureCases.push('no-store');
@@ -362,5 +346,77 @@ export const cacheMode = {
         );
       }
     }
+  },
+};
+
+// Test for CORS-related properties and structural type compatibility with lib.dom.d.ts
+export const corsProperties = {
+  async test(ctrl, env, ctx) {
+    const req = new Request('https://example.org');
+
+    // These properties are now always present for structural type compatibility
+    // with lib.dom.d.ts Request interface (same approach as Deno and Bun)
+    assert.strictEqual('mode' in req, true);
+    assert.strictEqual('credentials' in req, true);
+    assert.strictEqual('destination' in req, true);
+    assert.strictEqual('referrer' in req, true);
+    assert.strictEqual('referrerPolicy' in req, true);
+
+    // Verify spec-compliant default values
+    assert.strictEqual(req.mode, 'no-cors');
+    assert.strictEqual(req.credentials, 'same-origin');
+    assert.strictEqual(req.destination, '');
+    assert.strictEqual(req.referrer, 'about:client');
+    assert.strictEqual(req.referrerPolicy, '');
+
+    // Values should be the same for cloned requests
+    const cloned = req.clone();
+    assert.strictEqual(cloned.mode, 'no-cors');
+    assert.strictEqual(cloned.credentials, 'same-origin');
+    assert.strictEqual(cloned.destination, '');
+    assert.strictEqual(cloned.referrer, 'about:client');
+    assert.strictEqual(cloned.referrerPolicy, '');
+
+    // Values should be the same when reconstructing from another request
+    const reconstructed = new Request(req);
+    assert.strictEqual(reconstructed.mode, 'no-cors');
+    assert.strictEqual(reconstructed.credentials, 'same-origin');
+    assert.strictEqual(reconstructed.destination, '');
+    assert.strictEqual(reconstructed.referrer, 'about:client');
+    assert.strictEqual(reconstructed.referrerPolicy, '');
+
+    // CORS-related properties in RequestInit should be silently ignored
+    // (per WinterTC guidance for non-browser runtimes)
+    const reqWithInit = new Request('https://example.org', {
+      mode: 'cors',
+      credentials: 'include',
+      referrer: 'https://example.com',
+      referrerPolicy: 'no-referrer',
+    });
+    // Values should still be the spec-compliant defaults, not the init values
+    assert.strictEqual(reqWithInit.mode, 'no-cors');
+    assert.strictEqual(reqWithInit.credentials, 'same-origin');
+    assert.strictEqual(reqWithInit.destination, '');
+    assert.strictEqual(reqWithInit.referrer, 'about:client');
+    assert.strictEqual(reqWithInit.referrerPolicy, '');
+  },
+};
+
+// Test that Headers.getSetCookie() is always available
+export const headersGetSetCookie = {
+  async test(ctrl, env, ctx) {
+    // getSetCookie should always be available for structural type compatibility
+    assert.strictEqual('getSetCookie' in Headers.prototype, true);
+
+    const headers = new Headers();
+    headers.append('Set-Cookie', 'foo=bar');
+    headers.append('Set-Cookie', 'baz=qux');
+
+    const cookies = headers.getSetCookie();
+    assert.deepStrictEqual(cookies, ['foo=bar', 'baz=qux']);
+
+    // Empty headers should return empty array
+    const emptyHeaders = new Headers();
+    assert.deepStrictEqual(emptyHeaders.getSetCookie(), []);
   },
 };

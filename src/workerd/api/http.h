@@ -778,8 +778,20 @@ class Request final: public Body {
     return false;
   }
 
+  // CORS-related properties - These properties are part of the standard Request interface but
+  // are not meaningful in server-side runtimes that don't implement CORS. We expose them with
+  // spec-compliant defaults for structural type compatibility with lib.dom.d.ts, following
+  // the same approach as Deno and Bun.
+  // See: https://fetch.spec.whatwg.org/#request-class
+  kj::StringPtr getMode() { return "no-cors"_kj; }
+  kj::StringPtr getCredentials() { return "same-origin"_kj; }
+  kj::StringPtr getDestination() { return ""_kj; }
+  kj::StringPtr getReferrer() { return "about:client"_kj; }
+  kj::StringPtr getReferrerPolicy() { return ""_kj; }
+
   // The cache mode determines how HTTP cache is used with the request.
-  jsg::Optional<kj::StringPtr> getCache(jsg::Lock& js);
+  // Returns "default" when no cache mode is explicitly set, for structural type compatibility.
+  kj::StringPtr getCache(jsg::Lock& js);
   CacheMode getCacheMode();
 
   // We do not implement integrity checking at all. However, the spec says that
@@ -817,41 +829,33 @@ class Request final: public Body {
       // JSG_READONLY_PROTOTYPE_PROPERTY(duplex, getDuplex);
       JSG_READONLY_PROTOTYPE_PROPERTY(integrity, getIntegrity);
       JSG_READONLY_PROTOTYPE_PROPERTY(keepalive, getKeepalive);
-      if (flags.getCacheOptionEnabled()) {
-        JSG_READONLY_PROTOTYPE_PROPERTY(cache, getCache);
-        if (flags.getCacheReload()) {
-          JSG_TS_OVERRIDE(<CfHostMetadata = unknown, Cf = CfProperties<CfHostMetadata>> {
-            constructor(input: RequestInfo<CfProperties> | URL, init?: RequestInit<Cf>);
-            clone(): Request<CfHostMetadata, Cf>;
-            cache?: "no-store" | "no-cache" | "reload";
-            get cf(): Cf | undefined;
-          });
-        } else if (flags.getCacheNoCache()) {
-          JSG_TS_OVERRIDE(<CfHostMetadata = unknown, Cf = CfProperties<CfHostMetadata>> {
-            constructor(input: RequestInfo<CfProperties> | URL, init?: RequestInit<Cf>);
-            clone(): Request<CfHostMetadata, Cf>;
-            cache?: "no-store" | "no-cache";
-            get cf(): Cf | undefined;
-          });
-        } else {
-          JSG_TS_OVERRIDE(<CfHostMetadata = unknown, Cf = CfProperties<CfHostMetadata>> {
-            constructor(input: RequestInfo<CfProperties> | URL, init?: RequestInit<Cf>);
-            clone(): Request<CfHostMetadata, Cf>;
-            cache?: "no-store";
-            get cf(): Cf | undefined;
-          });
-        }
-      } else {
-        JSG_TS_OVERRIDE(<CfHostMetadata = unknown, Cf = CfProperties<CfHostMetadata>> {
-          constructor(input: RequestInfo<CfProperties> | URL, init?: RequestInit<Cf>);
-          clone(): Request<CfHostMetadata, Cf>;
-          get cf(): Cf | undefined;
-        });
-      }
+
+      // CORS-related properties - exposed unconditionally for structural type compatibility
+      // with lib.dom.d.ts. These return spec-compliant defaults since we don't implement CORS.
+      JSG_READONLY_PROTOTYPE_PROPERTY(mode, getMode);
+      JSG_READONLY_PROTOTYPE_PROPERTY(credentials, getCredentials);
+      JSG_READONLY_PROTOTYPE_PROPERTY(destination, getDestination);
+      JSG_READONLY_PROTOTYPE_PROPERTY(referrer, getReferrer);
+      JSG_READONLY_PROTOTYPE_PROPERTY(referrerPolicy, getReferrerPolicy);
+
+      // cache property is now unconditional for structural type compatibility.
+      // The flag still controls whether cache values can be SET in RequestInit.
+      JSG_READONLY_PROTOTYPE_PROPERTY(cache, getCache);
 
       // Use `RequestInfo` and `RequestInit` type aliases in constructor instead of inlining.
       // `CfProperties` is defined in `/types/defines/cf.d.ts`. We only really need a single `Cf`
       // type parameter here, but it would be a breaking type change to remove `CfHostMetadata`.
+      JSG_TS_OVERRIDE(<CfHostMetadata = unknown, Cf = CfProperties<CfHostMetadata>> {
+        constructor(input: RequestInfo<CfProperties> | URL, init?: RequestInit<Cf>);
+        clone(): Request<CfHostMetadata, Cf>;
+        readonly cache: RequestCache;
+        readonly credentials: RequestCredentials;
+        readonly destination: RequestDestination;
+        readonly mode: RequestMode;
+        readonly referrer: string;
+        readonly referrerPolicy: ReferrerPolicy;
+        get cf(): Cf | undefined;
+      });
     } else {
       JSG_READONLY_INSTANCE_PROPERTY(method, getMethod);
       JSG_READONLY_INSTANCE_PROPERTY(url, getUrl);
@@ -867,9 +871,25 @@ class Request final: public Body {
       JSG_READONLY_INSTANCE_PROPERTY(integrity, getIntegrity);
       JSG_READONLY_INSTANCE_PROPERTY(keepalive, getKeepalive);
 
+      // CORS-related properties - exposed unconditionally for structural type compatibility
+      JSG_READONLY_INSTANCE_PROPERTY(mode, getMode);
+      JSG_READONLY_INSTANCE_PROPERTY(credentials, getCredentials);
+      JSG_READONLY_INSTANCE_PROPERTY(destination, getDestination);
+      JSG_READONLY_INSTANCE_PROPERTY(referrer, getReferrer);
+      JSG_READONLY_INSTANCE_PROPERTY(referrerPolicy, getReferrerPolicy);
+
+      // cache property is now unconditional for structural type compatibility
+      JSG_READONLY_INSTANCE_PROPERTY(cache, getCache);
+
       JSG_TS_OVERRIDE(<CfHostMetadata = unknown, Cf = CfProperties<CfHostMetadata>> {
         constructor(input: RequestInfo<CfProperties> | URL, init?: RequestInit<Cf>);
         clone(): Request<CfHostMetadata, Cf>;
+        readonly cache: RequestCache;
+        readonly credentials: RequestCredentials;
+        readonly destination: RequestDestination;
+        readonly mode: RequestMode;
+        readonly referrer: string;
+        readonly referrerPolicy: ReferrerPolicy;
         readonly cf?: Cf;
       });
     }

@@ -24,6 +24,33 @@ const unitTests :Workerd.Config = (
           ( name = "CACHE_ENABLED", json = "true" ),
         ],
         compatibilityFlags = ["nodejs_compat", "service_binding_extra_handlers", "cache_option_enabled", "url_standard", "workers_api_getters_setters_on_prototype", "fetch_legacy_url"],
-    ))
+    )),
+    # Test for CORS-related properties - uses default flags
+    ( name = "http-test-cors-properties",
+      worker = (
+        modules = [
+          ( name = "worker-cors", esModule = embed "http-test.js" )
+        ],
+        bindings = [
+          ( name = "SERVICE", service = "http-test-cors-properties" ),
+          ( name = "CACHE_ENABLED", json = "true" ),
+        ],
+        compatibilityFlags = ["nodejs_compat", "workers_api_getters_setters_on_prototype"],
+      )
+    ),
+    # Test for Headers.getSetCookie() - should work without http_headers_getsetcookie flag
+    ( name = "http-test-getsetcookie",
+      worker = (
+        modules = [
+          ( name = "worker-getsetcookie", esModule = embed "http-test.js" )
+        ],
+        bindings = [
+          ( name = "SERVICE", service = "http-test-getsetcookie" ),
+          ( name = "CACHE_ENABLED", json = "true" ),
+        ],
+        # Explicitly NOT including http_headers_getsetcookie to test unconditional availability
+        compatibilityFlags = ["nodejs_compat", "workers_api_getters_setters_on_prototype", "no_http_headers_getsetcookie"],
+      )
+    ),
   ],
 );
