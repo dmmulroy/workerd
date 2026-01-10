@@ -123,6 +123,9 @@ public:
   JSG_RESOURCE_TYPE(Headers, CompatibilityFlags::Reader flags) {
     JSG_METHOD(get);
     JSG_METHOD(getAll);
+    // getSetCookie is enabled by default (compat date >= 2023-03-01) for structural type
+    // compatibility with lib.dom.d.ts. We still respect the explicit disable flag for users
+    // who need to opt out.
     if (flags.getHttpHeadersGetSetCookie()) {
       JSG_METHOD(getSetCookie);
     }
@@ -150,6 +153,8 @@ public:
       [Symbol.iterator](): IterableIterator<[key: string, value: string]>;
 
       forEach<This = unknown>(callback: (this: This, value: string, key: string, parent: Headers) => void, thisArg?: This): void;
+
+      getSetCookie(): string[];
     });
   }
 
